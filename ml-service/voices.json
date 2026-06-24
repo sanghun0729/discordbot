@@ -1,0 +1,6 @@
+{
+  "_comment": "언어코드 -> piper voice(.onnx) 절대경로. download_voices.sh 로 받은 경로로 바꾸세요. 없는 언어는 TTS 생략(텍스트만 출력).",
+  "ko": "/opt/piper/voices/ko_KR-glow-medium.onnx",
+  "en": "/opt/piper/voices/en_US-amy-medium.onnx",
+  "ja": "/opt/piper/voices/ja_JP-hfc_female-medium.onnx"
+}

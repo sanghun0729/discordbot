@@ -1,83 +1,122 @@
-# Discord 음성 번역 봇
+# Discord 음성 번역 봇 (로컬·무료)
 
-음성 채널에 들어온 사용자의 **발화를 인식(STT)** 하고 **목표 언어로 번역**하여 **텍스트 채팅**으로 출력하는 Discord 봇입니다.
+음성 채널의 **발화를 인식(STT)** 하고 **번역**하여 **텍스트 + 음성(TTS)** 으로 출력하는 Discord 봇입니다.
+STT/번역/TTS를 **전부 로컬에서 무료**로 처리합니다 (유료 API 불필요).
 
 ```
 사용자 음성(마이크)
   → Discord 음성 채널
-    → 봇이 음성 수신 (@discordjs/voice)
-      → Opus 디코딩 → WAV
-        → Whisper (STT, 음성→텍스트)
-          → GPT (번역)
-            → 텍스트 채널에 전송
+    → Node 봇이 수신 (@discordjs/voice) → Opus 디코딩 → WAV
+      → [로컬 Python ML 사이드카]
+          STT  : faster-whisper   (음성→텍스트, 언어 자동 감지)
+          번역 : argostranslate   (오프라인)
+          TTS  : piper            (텍스트→음성)
+      → 텍스트 채널에 번역문 전송  +  음성 채널에 TTS 재생
 ```
 
-## 기능
+## 구성 요소
 
-- `/join language:<언어> [user:<사용자>]` — 현재 내가 있는 음성 채널에 봇이 입장, 발화를 번역해 명령을 입력한 채널에 전송
-  - `user` 를 지정하면 **그 사용자의 발화만** 번역 (요구사항의 "특정 사용자" 대응)
-- `/leave` — 음성 채널 퇴장 및 번역 종료
+| 구성 | 역할 | 기술 |
+|---|---|---|
+| **Node 봇** (`src/`) | Discord 입출력 — 음성 수신, 텍스트 전송, TTS 재생 | discord.js, @discordjs/voice |
+| **ML 사이드카** (`ml-service/`) | STT + 번역 + TTS (로컬·무료) | FastAPI, faster-whisper, argostranslate, piper |
 
-출력 예시:
+두 프로세스는 같은 서버에서 HTTP(`http://127.0.0.1:8000`)로 통신합니다.
+
+## 명령어
+
+- `/join language:<언어> [user:<사용자>] [speak:<true/false>]` — 음성 채널 입장, 번역 시작
+  - `user`: 그 사용자의 발화만 번역 (요청하신 "특정 사용자")
+  - `speak`: 번역문 음성(TTS) 재생 여부 (기본 켜짐)
+- `/setlang language:<언어>` — 번역 목표 언어 변경 (명령어로 언어 설정)
+- `/leave` — 종료
+
+출력 예시(텍스트):
 ```
 🗣️ Alice → 안녕하세요, 잘 지내세요?
 > Hello, how are you?
 ```
 
-## 사전 준비
+---
 
-### 1) Discord 봇 생성
-1. https://discord.com/developers/applications → **New Application**
-2. **Bot** 탭 → **Reset Token** 으로 토큰 발급 → `.env` 의 `DISCORD_TOKEN`
-3. **Bot** 탭에서 **SERVER MEMBERS INTENT** / **MESSAGE CONTENT INTENT** 는 이 봇엔 불필요(슬래시 명령 사용). 단, 음성 수신을 위해 봇이 채널에서 **스스로 deaf 상태가 아니어야** 함 (코드에서 `selfDeaf: false` 처리됨).
-4. **OAuth2 > URL Generator** → scopes: `bot`, `applications.commands` / bot permissions: `Connect`, `Speak`, `Send Messages`, `View Channels` → 생성된 URL 로 서버에 초대
-5. **General Information** 의 **Application ID** → `.env` 의 `CLIENT_ID`
+## 설치 (Ubuntu 24.04 기준)
 
-### 2) OpenAI API 키
-- https://platform.openai.com/api-keys → 키 발급 → `.env` 의 `OPENAI_API_KEY`
-
-### 3) 시스템 요구사항
-- Node.js 18+ (권장 20/22)
-- 네이티브 Opus 디코딩을 위해 `@discordjs/opus` 가 빌드됩니다. 빌드 도구가 없으면(드물게) `python3`, `make`, `g++` 등이 필요할 수 있습니다.
-
-## 설치 및 실행
-
+### 0) 시스템 패키지
 ```bash
-# 1. 의존성 설치
-npm install
-
-# 2. 환경변수 설정
-cp .env.example .env
-#   .env 를 열어 DISCORD_TOKEN / CLIENT_ID / GUILD_ID / OPENAI_API_KEY 입력
-
-# 3. 슬래시 명령 등록 (GUILD_ID 지정 시 즉시 반영)
-npm run deploy
-
-# 4. 봇 실행
-npm start
+sudo apt-get update
+sudo apt-get install -y nodejs npm python3 python3-venv python3-pip build-essential
+# ffmpeg 는 npm 의 ffmpeg-static 으로 자동 제공되므로 별도 설치 불필요
 ```
 
+### 1) ML 사이드카 (Python)
+```bash
+cd ml-service
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# (선택) TTS 음성 모델 다운로드 — 음성 출력을 원할 때만
+bash download_voices.sh            # 기본 /opt/piper/voices 에 저장
+#   다운로드 후 voices.json 의 경로가 맞는지 확인 (없는 언어는 텍스트만 출력)
+
+# 서비스 실행 (최초 실행 시 Whisper 모델 자동 다운로드)
+uvicorn app:app --host 127.0.0.1 --port 8000
+```
+> CPU만 있으면 `WHISPER_MODEL=base` 또는 `small` 권장. GPU가 있으면
+> `WHISPER_DEVICE=cuda WHISPER_COMPUTE=float16` 로 더 빠르게.
+
+### 2) Node 봇
+```bash
+# 프로젝트 루트에서
+npm install
+
+cp .env.example .env
+nano .env   # DISCORD_TOKEN, CLIENT_ID, GUILD_ID, ML_SERVICE_URL 입력
+
+npm run deploy   # 슬래시 명령 등록
+npm start        # 봇 실행
+```
+
+### 3) Discord 봇 등록
+1. https://discord.com/developers/applications → **New Application**
+2. **Bot** → **Reset Token** → `.env` 의 `DISCORD_TOKEN`
+3. **General Information** 의 **Application ID** → `.env` 의 `CLIENT_ID`
+4. **OAuth2 > URL Generator** → scopes: `bot`, `applications.commands` /
+   permissions: `Connect`, `Speak`, `Send Messages`, `View Channels` → 생성된 URL로 서버 초대
+
+---
+
 ## 사용법
+1. 음성 채널 입장
+2. `/join language:한국어` (특정인만: `/join language:한국어 user:@상대`, 음성 끄기: `speak:false`)
+3. 말하면 약 2~5초 뒤 번역문이 텍스트로 올라오고, 음성으로도 재생됨
+4. 언어 바꾸기: `/setlang language:English`
+5. 종료: `/leave`
 
-1. 음성 채널에 입장
-2. 텍스트 채널에서 `/join language:Korean` 입력 (특정인만: `/join language:Korean user:@Alice`)
-3. 음성 채널에서 말하면 → 잠시 후(약 2~5초) 번역문이 텍스트로 올라옴
-4. `/leave` 로 종료
+## 상시 구동 (선택)
+```bash
+# ML 서비스
+sudo tee /etc/systemd/system/transl-ml.service >/dev/null <<'EOF'
+[Unit]
+Description=Discord Translate ML
+After=network.target
+[Service]
+WorkingDirectory=%h/discordbot/ml-service
+ExecStart=%h/discordbot/ml-service/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8000
+Restart=always
+[Install]
+WantedBy=default.target
+EOF
 
-## 동작 / 설계 메모
+# Node 봇 (pm2)
+npm i -g pm2 && pm2 start src/index.js --name transl-bot && pm2 save
+```
 
-- **발화 단위 처리**: 0.8초 이상 무음이 감지되면 한 문장이 끝난 것으로 보고 STT→번역을 수행합니다. 완전 실시간 동시통역이 아니라 약간의 지연이 있습니다.
-- **여러 화자**: 화자별로 독립 스트림을 구독하므로 동시에 여러 명이 말해도 각각 번역됩니다.
-- **언어 자동 감지**: Whisper 가 입력 언어를 자동 감지합니다. 화자가 항상 한 언어만 쓴다면 `.env` 의 `SOURCE_LANG`(예: `en`)을 지정해 정확도를 높일 수 있습니다.
+## 설계 / 한계
+- **발화 단위 처리**: 0.8초 무음 기준으로 문장 종료를 판단 → 완전 실시간이 아니라 2~5초 지연.
+- **다중 화자**: 화자별 독립 스트림으로 동시 번역. 단, **TTS 음성 재생은 길드당 1개 오디오만 가능**하므로 큐로 직렬화되어 순서대로 재생됩니다.
+- **언어 자동 감지**: Whisper가 입력 언어를 감지하고, argostranslate가 (필요 시 영어 경유로) 목표 언어로 번역.
+- **번역 품질**: argostranslate는 오프라인·무료이지만 상용 API보다 품질이 낮을 수 있습니다. 더 높은 품질이 필요하면 `ml-service/app.py` 의 `_translate` 를 로컬 LLM(Ollama 등)이나 DeepL로 교체하면 됩니다.
+- **TTS 언어**: piper 음성 모델이 있는 언어만 음성 출력. 모델이 없으면 자동으로 텍스트만 출력합니다.
 
-## 비용 / 한계
-
-- Whisper STT, GPT 번역은 **유료 API**입니다 (사용량 과금).
-- Discord 음성 수신 API 는 공식적으로 "unsupported" 로 표기되지만 `@discordjs/voice` 로 안정적으로 동작합니다.
-- 짧은 잡음(0.6초 미만)은 무시합니다.
-
-## 향후 확장 (선택)
-
-- **음성(TTS) 출력**: 번역문을 TTS(OpenAI tts-1 등)로 합성해 봇이 음성 채널에 재생. 단, 봇은 길드당 1개 오디오만 재생 가능하므로 다중 화자 큐잉이 필요.
-- **언어 자동 라우팅**: 화자별로 서로 다른 목표 언어 매핑.
-- **DeepL/Google Translate** 로 번역 백엔드 교체.
+## 비용
+- STT/번역/TTS 전부 로컬 오픈소스 → **추가 API 비용 없음**. (서버 CPU/디스크만 사용)
