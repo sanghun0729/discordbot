@@ -100,8 +100,19 @@ async function handleJoin(interaction) {
 
   // VOICE_DEBUG=1 일 때 연결 단계별 상태/디버그 로그 (UDP 탐색 vs 암호화 진단용).
   if (process.env.VOICE_DEBUG) {
+    let hookedNet = null;
     connection.on('stateChange', (oldS, newS) => {
       console.log(`[voice] state: ${oldS.status} -> ${newS.status}`);
+      const net = newS.networking;
+      if (net && net !== hookedNet) {
+        hookedNet = net;
+        net.on('close', (code) =>
+          console.log(`[voice] >>> 음성 WS 종료 코드: ${code}`)
+        );
+        net.on('error', (e) =>
+          console.log(`[voice] >>> networking 에러: ${e && e.message}`)
+        );
+      }
     });
     connection.on('debug', (msg) => console.log('[voice][debug]', msg));
   }
