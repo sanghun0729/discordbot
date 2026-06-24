@@ -54,10 +54,12 @@ cd ml-service
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 번역 모델(NLLB-200)을 CTranslate2 포맷으로 변환 (1회). GPU 기본 float16.
-bash setup_translation.sh
-#   CPU만 있으면: bash setup_translation.sh facebook/nllb-200-distilled-600M models/nllb-600M-ct2 int8
-#   그리고 .env/환경변수로 NLLB_MODEL_DIR, ML_DEVICE=cpu, ML_COMPUTE=int8 지정
+# 번역 모델을 CTranslate2 포맷으로 변환 (1회). 한↔영 전용 파인튜닝 우선.
+bash setup_translation.sh NHNDQ/nllb-finetuned-en2ko models/nllb-finetuned-en2ko-ct2 float16
+bash setup_translation.sh NHNDQ/nllb-finetuned-ko2en models/nllb-finetuned-ko2en-ct2 float16
+#   (선택) 한↔영 외 다른 언어도 쓰려면 범용 모델도 변환:
+#   bash setup_translation.sh facebook/nllb-200-distilled-1.3B models/nllb-200-distilled-1.3B-ct2 float16
+#   CPU면 quant 를 int8 로, 모델은 600M 권장. 경로는 NLLB_*_DIR 환경변수로 지정.
 
 # (선택) TTS 음성 모델 다운로드 — 음성 출력을 원할 때만
 bash download_voices.sh            # 기본 /opt/piper/voices 에 저장
@@ -121,7 +123,12 @@ npm i -g pm2 && pm2 start src/index.js --name transl-bot && pm2 save
 - **발화 단위 처리**: 0.8초 무음 기준으로 문장 종료를 판단 → 완전 실시간이 아니라 2~5초 지연.
 - **다중 화자**: 화자별 독립 스트림으로 동시 번역. 단, **TTS 음성 재생은 길드당 1개 오디오만 가능**하므로 큐로 직렬화되어 순서대로 재생됩니다.
 - **언어 자동 감지**: Whisper가 입력 언어를 감지하고, NLLB-200이 목표 언어로 직접 번역.
-- **번역 품질/엔진**: 번역은 **CTranslate2(엔진) + NLLB-200(모델)** 조합으로, 오프라인·무료이면서 품질이 우수합니다(약 200개 언어). 한↔영을 더 끌어올리려면 `NHNDQ/nllb-finetuned-en2ko` / `ko2en` 파인튜닝 모델을 변환해 사용할 수도 있습니다. 모델/디바이스는 `NLLB_MODEL_DIR`, `ML_DEVICE`, `ML_COMPUTE` 로 조정합니다.
+- **번역 품질/엔진**: 번역은 **CTranslate2(엔진) + NLLB(모델)** 조합입니다. 모델 라우팅:
+  - `en→ko` → `NHNDQ/nllb-finetuned-en2ko` (한영 전용 파인튜닝)
+  - `ko→en` → `NHNDQ/nllb-finetuned-ko2en` (한영 전용 파인튜닝)
+  - 그 외 언어쌍 → 범용 `NLLB-200` (설치한 경우, 없으면 원문 유지)
+
+  이 앱은 주로 한↔영으로 쓰이므로 **한영 전용 파인튜닝본을 우선 적용**해 품질을 높였습니다. 모델 경로/디바이스는 `NLLB_EN2KO_DIR`, `NLLB_KO2EN_DIR`, `NLLB_MODEL_DIR`, `ML_DEVICE`, `ML_COMPUTE` 로 조정합니다. `GET /health` 로 어떤 번역기가 로드됐는지 확인할 수 있습니다.
 - **TTS 언어**: piper 음성 모델이 있는 언어만 음성 출력. 모델이 없으면 자동으로 텍스트만 출력합니다.
 
 ## 비용

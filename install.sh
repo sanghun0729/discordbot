@@ -70,15 +70,30 @@ if [ "$GPU" -eq 1 ]; then
 fi
 
 # --- 4. 번역 모델 변환 -----------------------------------------------------
-echo "▶ [4/7] NLLB-200 → CTranslate2 변환 (수 GB 다운로드, 시간 소요)..."
+echo "▶ [4/7] 번역 모델 → CTranslate2 변환 (다운로드, 시간 소요)..."
 if [ "$GPU" -eq 1 ]; then
-  bash setup_translation.sh facebook/nllb-200-distilled-1.3B models/nllb-200-distilled-1.3B-ct2 float16
+  QUANT=float16
   ML_DEVICE_DEFAULT=cuda; ML_COMPUTE_DEFAULT=float16; WHISPER_DEFAULT=large-v3
-  NLLB_DIR_DEFAULT="$ROOT/ml-service/models/nllb-200-distilled-1.3B-ct2"
 else
-  bash setup_translation.sh facebook/nllb-200-distilled-600M models/nllb-200-distilled-600M-ct2 int8
+  QUANT=int8
   ML_DEVICE_DEFAULT=cpu; ML_COMPUTE_DEFAULT=int8; WHISPER_DEFAULT=small
-  NLLB_DIR_DEFAULT="$ROOT/ml-service/models/nllb-200-distilled-600M-ct2"
+fi
+
+# 한↔영 전용 파인튜닝 모델(우선) — 이 앱의 주 용도.
+bash setup_translation.sh NHNDQ/nllb-finetuned-en2ko "models/nllb-finetuned-en2ko-ct2" "$QUANT"
+bash setup_translation.sh NHNDQ/nllb-finetuned-ko2en "models/nllb-finetuned-ko2en-ct2" "$QUANT"
+
+# (선택) 그 외 언어용 범용 NLLB-200. 한↔영만 쓰면 건너뛰어 VRAM/용량 절약.
+GENERAL_DIR=""
+read -r -p "▶ 한↔영 외 다른 언어도 쓸까요? (범용 NLLB-200 추가 설치) [y/N] " GEN || GEN=N
+if [[ "${GEN:-N}" =~ ^[Yy]$ ]]; then
+  if [ "$GPU" -eq 1 ]; then
+    bash setup_translation.sh facebook/nllb-200-distilled-1.3B "models/nllb-200-distilled-1.3B-ct2" "$QUANT"
+    GENERAL_DIR="$ROOT/ml-service/models/nllb-200-distilled-1.3B-ct2"
+  else
+    bash setup_translation.sh facebook/nllb-200-distilled-600M "models/nllb-200-distilled-600M-ct2" "$QUANT"
+    GENERAL_DIR="$ROOT/ml-service/models/nllb-200-distilled-600M-ct2"
+  fi
 fi
 
 # --- 5. (선택) TTS 음성 모델 ----------------------------------------------
@@ -99,7 +114,9 @@ cat > ml-service/ml.env <<EOF
 ML_DEVICE=${ML_DEVICE_DEFAULT}
 ML_COMPUTE=${ML_COMPUTE_DEFAULT}
 WHISPER_MODEL=${WHISPER_DEFAULT}
-NLLB_MODEL_DIR=${NLLB_DIR_DEFAULT}
+NLLB_EN2KO_DIR=${ROOT}/ml-service/models/nllb-finetuned-en2ko-ct2
+NLLB_KO2EN_DIR=${ROOT}/ml-service/models/nllb-finetuned-ko2en-ct2
+NLLB_MODEL_DIR=${GENERAL_DIR}
 EOF
 echo "  → ml-service/ml.env 생성됨 (ML 서비스 환경변수)"
 
