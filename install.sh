@@ -101,11 +101,12 @@ fi
 # --- 5. (선택) TTS 음성 모델 ----------------------------------------------
 read -r -p "▶ [5/7] TTS(음성 출력) 모델을 지금 받을까요? [y/N] " ANS || ANS=N
 if [[ "${ANS:-N}" =~ ^[Yy]$ ]]; then
-  bash download_voices.sh "$ROOT/ml-service/voices"
-  # 다운로드한 음성 파일의 절대경로로 voices.json 자동 생성.
+  # 실패해도 설치를 중단하지 않는다(|| true). 받은 음성만 TTS에 사용됨.
+  bash download_voices.sh "$ROOT/ml-service/voices" || true
+  # 음성 파일 절대경로로 voices.json 생성. 실제 없는 파일은 app.py가 자동으로 건너뜀.
   cat > "$ROOT/ml-service/voices.json" <<EOF
 {
-  "ko": "$ROOT/ml-service/voices/ko_KR-glow-medium.onnx",
+  "ko": "$ROOT/ml-service/voices/ko_KR-kss.onnx",
   "en": "$ROOT/ml-service/voices/en_US-amy-medium.onnx",
   "ja": "$ROOT/ml-service/voices/ja_JP-hfc_female-medium.onnx"
 }
