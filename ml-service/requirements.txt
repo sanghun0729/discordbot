@@ -6,4 +6,6 @@ faster-whisper>=1.0.0
 ctranslate2>=4.0
 transformers>=4.38
 sentencepiece>=0.2.0
+# torch 는 모델 변환(ct2-transformers-converter) 전용. 추론엔 불필요.
+# CPU 빌드 권장:  pip install torch --index-url https://download.pytorch.org/whl/cpu
 piper-tts>=1.2.0

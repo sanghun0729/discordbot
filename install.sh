@@ -63,6 +63,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
+# 모델 변환(ct2-transformers-converter)에 PyTorch 필요. 추론엔 안 쓰이므로 CPU 빌드면 충분.
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 if [ "$GPU" -eq 1 ]; then
   echo "▶ GPU용 CUDA 런타임 라이브러리(cuBLAS/cuDNN) 설치..."
