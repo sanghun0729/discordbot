@@ -33,6 +33,13 @@ function startListening(connection, { client, guildId, getSession }) {
     const opusStream = receiver.subscribe(userId, {
       end: { behavior: EndBehaviorType.AfterSilence, duration: 800 },
     });
+    // 수신 스트림 자체의 에러(예: DAVE 복호화 실패로 인한 destroy)를 처리해
+    // 처리되지 않은 'error' 이벤트로 프로세스가 죽지 않게 한다. pipe는 error를
+    // 전파하지 않으므로 opusStream에 직접 리스너를 단다.
+    opusStream.on('error', (err) => {
+      console.error(`[voice] receive stream error (${userId}):`, err.message);
+      active.delete(userId);
+    });
     const decoder = new prism.opus.Decoder({
       rate: 48000,
       channels: 2,

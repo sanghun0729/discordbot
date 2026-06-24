@@ -26,6 +26,9 @@ const {
   entersState,
 } = require('@discordjs/voice');
 
+// DAVE(E2EE) 음성 수신 우회 패치를 voice 사용 전에 적용한다.
+require('./davePatch');
+
 const { startListening } = require('./voice');
 const { attachPlayer, detachPlayer } = require('./playback');
 const { LANGUAGES } = require('./languages');
