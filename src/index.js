@@ -46,6 +46,14 @@ client.once(Events.ClientReady, (c) => {
   console.log(`✅ 로그인됨: ${c.user.tag}`);
 });
 
+// 처리되지 않은 예외/거부가 봇 전체를 종료시키지 않도록 안전망.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   try {
@@ -75,6 +83,7 @@ async function handleJoin(interaction) {
 
   await interaction.deferReply();
 
+  const guildId = voiceChannel.guild.id;
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
     guildId: voiceChannel.guild.id,
@@ -83,9 +92,28 @@ async function handleJoin(interaction) {
     selfMute: false, // TTS 재생을 위해 false
   });
 
-  await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+  // 음성 연결에서 나는 에러가 프로세스를 죽이지 않도록 반드시 리스너를 단다.
+  connection.on('error', (err) => {
+    console.error(`[voice] connection error (${guildId}):`, err.message);
+  });
 
-  const guildId = voiceChannel.guild.id;
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+  } catch (err) {
+    console.error(`[voice] Ready 도달 실패 (${guildId}):`, err.message);
+    try {
+      detachPlayer(guildId);
+    } catch (_) {
+      /* noop */
+    }
+    connection.destroy();
+    sessions.delete(guildId);
+    return interaction.editReply(
+      '⚠️ 음성 채널 연결에 실패했습니다(타임아웃).\n' +
+        '서버 방화벽에서 Discord 음성용 **아웃바운드 UDP(50000–65535)** 가 열려 있는지 확인해주세요.'
+    );
+  }
+
   sessions.set(guildId, {
     targetCode,
     targetName: LANGUAGES[targetCode] || targetCode,
