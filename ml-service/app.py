@@ -159,9 +159,41 @@ def _synthesize(text, lang_code):
 # ---------------------------------------------------------------------------
 # STT
 # ---------------------------------------------------------------------------
+def _run_whisper(wav_bytes, use_vad):
+    return _whisper.transcribe(
+        io.BytesIO(wav_bytes),
+        beam_size=5,
+        temperature=0.0,
+        vad_filter=use_vad,
+        vad_parameters=dict(min_silence_duration_ms=500) if use_vad else None,
+        condition_on_previous_text=False,  # 직전 텍스트 반복(루프) 방지
+        no_speech_threshold=0.6,
+    )
+
+
 def _transcribe(wav_bytes):
-    segments, info = _whisper.transcribe(io.BytesIO(wav_bytes), beam_size=5)
-    text = "".join(seg.text for seg in segments).strip()
+    # VAD로 무음/잡음 구간 제거 + 환각 억제. VAD(onnxruntime) 미설치 시 폴백.
+    try:
+        segments, info = _run_whisper(wav_bytes, use_vad=True)
+        segments = list(segments)
+    except Exception as e:
+        print(f"[ml] VAD 사용 불가, 미적용으로 재시도: {e}")
+        segments, info = _run_whisper(wav_bytes, use_vad=False)
+        segments = list(segments)
+    parts = []
+    for seg in segments:
+        # 비음성/저신뢰 구간은 버린다(무음에서 지어낸 문장 차단).
+        if getattr(seg, "no_speech_prob", 0.0) > 0.6:
+            continue
+        if getattr(seg, "avg_logprob", 0.0) < -1.0:
+            continue
+        parts.append(seg.text)
+    text = "".join(parts).strip()
+
+    # 언어 감지 신뢰도가 낮으면(노이즈) 버린다.
+    prob = getattr(info, "language_probability", 1.0) or 1.0
+    if prob < 0.5:
+        return "", info.language
     return text, info.language
 
 

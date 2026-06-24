@@ -9,6 +9,9 @@ const { enqueueAudio } = require('./playback');
 // 48000Hz * 2ch * 2byte = 192000 byte/sec. 약 0.6초 미만 발화는 잡음으로 보고 버린다.
 const MIN_PCM_BYTES = Math.floor(192000 * 0.6);
 
+// 길드별 최근 전송 번역문(중복 억제용). guildId -> { text, t }
+const lastSent = new Map();
+
 /**
  * 음성 연결 수신기를 구독해 화자별 발화 단위로
  * 로컬 STT → 번역 → (텍스트 전송 + TTS 재생) 파이프라인을 돌린다.
@@ -66,6 +69,12 @@ function startListening(connection, { client, guildId, getSession }) {
         const wav = pcmToWav(pcm, 48000, 2);
         const result = await mlClient.processAudio(wav, current.targetCode);
         if (!result.translated) return;
+
+        // 짧은 시간 내 동일 번역 반복 억제(환각/중복 발화 방지).
+        const prev = lastSent.get(guildId);
+        const nowMs = Date.now();
+        if (prev && prev.text === result.translated && nowMs - prev.t < 8000) return;
+        lastSent.set(guildId, { text: result.translated, t: nowMs });
 
         const user = await client.users.fetch(userId);
         const name = user.globalName || user.username;
