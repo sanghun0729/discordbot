@@ -72,7 +72,11 @@ function startListening(connection, { client, guildId, getSession }) {
           enqueueAudio(guildId, result.audio);
         }
       } catch (err) {
-        console.error(`[voice] pipeline error (${userId}):`, err.message);
+        // fetch 실패의 실제 원인(err.cause)까지 출력해 진단을 돕는다.
+        const cause = err.cause
+          ? ` | cause: ${err.cause.code || err.cause.message || err.cause}`
+          : '';
+        console.error(`[voice] pipeline error (${userId}): ${err.message}${cause}`);
       }
     });
   });
