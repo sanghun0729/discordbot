@@ -6,8 +6,7 @@ faster-whisper>=1.0.0
 ctranslate2>=4.0
 transformers>=4.38
 sentencepiece>=0.2.0
-# torch/torchaudio: 모델 변환 + MeloTTS용. CPU 빌드 권장:
-#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-# TTS: MeloTTS (무료·로컬, 한국어 포함). 별도 설치(install.sh가 처리):
-#   pip install git+https://github.com/myshell-ai/MeloTTS.git
-#   python -m unidic download   # (일본어용, 선택)
+# torch: 모델 변환(ct2-transformers-converter) 전용. CPU 빌드 권장:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# TTS: gTTS (Google Translate TTS, 무료·키 불필요)
+gTTS>=2.5.0

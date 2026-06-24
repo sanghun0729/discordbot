@@ -48,14 +48,17 @@ NLLB_MODEL_DIR = os.environ.get("NLLB_MODEL_DIR", os.path.join(HERE, "models", "
 NLLB_TOKENIZER = os.environ.get("NLLB_TOKENIZER", "facebook/nllb-200-distilled-600M")
 NLLB_BEAM = int(os.environ.get("NLLB_BEAM", "4"))
 
-# TTS: MeloTTS (무료·로컬, 한국어 포함 다국어). ISO-639-1 -> MeloTTS 언어코드.
-MELO_LANG = {
-    "ko": "KR",
-    "en": "EN",
-    "ja": "JP",
-    "zh": "ZH",
-    "es": "ES",
-    "fr": "FR",
+# TTS: gTTS (Google Translate TTS, 무료·키 불필요). ISO-639-1 -> gTTS 언어코드.
+# 번역문 텍스트만 전송하며 MP3 오디오를 받는다(로컬 아님, 무료).
+GTTS_LANG = {
+    "ko": "ko",
+    "en": "en",
+    "ja": "ja",
+    "zh": "zh-CN",
+    "es": "es",
+    "fr": "fr",
+    "de": "de",
+    "vi": "vi",
 }
 
 # Whisper(ISO-639-1) -> NLLB(FLORES-200) 언어코드 매핑.
@@ -93,32 +96,7 @@ _tokenizer = AutoTokenizer.from_pretrained(NLLB_TOKENIZER)
 print("[ml] 번역 모델 준비 완료.")
 
 
-# MeloTTS 모델은 언어별로 무거우므로 최초 사용 시 지연 로딩 후 캐시한다.
-_melo_models = {}
-_melo_speakers = {}
-
-
-def _get_melo(lang_iso):
-    code = MELO_LANG.get(lang_iso)
-    if not code:
-        return None, None
-    if code not in _melo_models:
-        try:
-            from melo.api import TTS as MeloTTS
-
-            print(f"[ml] MeloTTS 로딩: {code} ({DEVICE}) ...")
-            model = MeloTTS(language=code, device=DEVICE)
-            _melo_models[code] = model
-            _melo_speakers[code] = list(model.hps.data.spk2id.values())[0]
-            print(f"[ml] MeloTTS {code} 준비 완료.")
-        except Exception as e:
-            print(f"[ml] MeloTTS({code}) 로딩 실패 — 텍스트만 출력: {e}")
-            _melo_models[code] = None
-            _melo_speakers[code] = None
-    return _melo_models[code], _melo_speakers[code]
-
-
-print(f"[ml] TTS(MeloTTS) 지원 언어: {list(MELO_LANG.keys())} (최초 사용 시 모델 다운로드)")
+print(f"[ml] TTS(gTTS) 지원 언어: {list(GTTS_LANG.keys())}")
 
 
 # ---------------------------------------------------------------------------
@@ -163,23 +141,19 @@ def _translate(text, src_iso, tgt_iso):
 # TTS (piper) — 없는 언어는 None 반환 → 텍스트만 출력
 # ---------------------------------------------------------------------------
 def _synthesize(text, lang_code):
-    if not text.strip():
+    """gTTS로 MP3 오디오 생성. 미지원 언어/실패 시 None(텍스트만 출력)."""
+    code = GTTS_LANG.get(lang_code)
+    if not code or not text.strip():
         return None
-    model, speaker_id = _get_melo(lang_code)
-    if model is None:
-        return None  # 미지원 언어 또는 로딩 실패 → 텍스트만 출력
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        out_path = tmp.name
     try:
-        model.tts_to_file(text, speaker_id, out_path, speed=1.0)
-        with open(out_path, "rb") as f:
-            return f.read()
+        from gtts import gTTS
+
+        buf = io.BytesIO()
+        gTTS(text=text, lang=code).write_to_fp(buf)  # MP3 (Node가 ffmpeg로 재생)
+        return buf.getvalue()
     except Exception as e:
-        print(f"[ml] MeloTTS 합성 실패: {e}")
+        print(f"[ml] gTTS 합성 실패: {e}")
         return None
-    finally:
-        if os.path.exists(out_path):
-            os.remove(out_path)
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +175,7 @@ def health():
             "ko2en": _ko2en is not None,
             "general": _general is not None,
         },
-        "tts": list(MELO_LANG.keys()),
+        "tts": list(GTTS_LANG.keys()),
     }
 
 

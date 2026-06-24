@@ -63,11 +63,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-# torch/torchaudio: 모델 변환 + MeloTTS용 (CPU 빌드).
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-# TTS: MeloTTS (무료·로컬, 한국어 포함). 모델은 최초 사용 시 자동 다운로드.
-pip install "git+https://github.com/myshell-ai/MeloTTS.git" || echo "⚠ MeloTTS 설치 실패 — 음성 출력은 비활성(텍스트는 정상)"
-python -m unidic download || true   # 일본어용(선택)
+# torch: 모델 변환(ct2-transformers-converter) 전용 (CPU 빌드).
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+# TTS: gTTS (무료·키 불필요). requirements.txt 에 포함되어 이미 설치됨.
 
 if [ "$GPU" -eq 1 ]; then
   echo "▶ GPU용 CUDA 런타임 라이브러리(cuBLAS/cuDNN) 설치..."
