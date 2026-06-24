@@ -90,12 +90,21 @@ async function handleJoin(interaction) {
     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     selfDeaf: false, // 수신하려면 반드시 false
     selfMute: false, // TTS 재생을 위해 false
+    debug: !!process.env.VOICE_DEBUG,
   });
 
   // 음성 연결에서 나는 에러가 프로세스를 죽이지 않도록 반드시 리스너를 단다.
   connection.on('error', (err) => {
     console.error(`[voice] connection error (${guildId}):`, err.message);
   });
+
+  // VOICE_DEBUG=1 일 때 연결 단계별 상태/디버그 로그 (UDP 탐색 vs 암호화 진단용).
+  if (process.env.VOICE_DEBUG) {
+    connection.on('stateChange', (oldS, newS) => {
+      console.log(`[voice] state: ${oldS.status} -> ${newS.status}`);
+    });
+    connection.on('debug', (msg) => console.log('[voice][debug]', msg));
+  }
 
   try {
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
