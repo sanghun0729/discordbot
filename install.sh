@@ -63,8 +63,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-# 모델 변환(ct2-transformers-converter)에 PyTorch 필요. 추론엔 안 쓰이므로 CPU 빌드면 충분.
-pip install torch --index-url https://download.pytorch.org/whl/cpu
+# torch/torchaudio: 모델 변환 + MeloTTS용 (CPU 빌드).
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# TTS: MeloTTS (무료·로컬, 한국어 포함). 모델은 최초 사용 시 자동 다운로드.
+pip install "git+https://github.com/myshell-ai/MeloTTS.git" || echo "⚠ MeloTTS 설치 실패 — 음성 출력은 비활성(텍스트는 정상)"
+python -m unidic download || true   # 일본어용(선택)
 
 if [ "$GPU" -eq 1 ]; then
   echo "▶ GPU용 CUDA 런타임 라이브러리(cuBLAS/cuDNN) 설치..."
@@ -98,21 +101,10 @@ if [[ "${GEN:-N}" =~ ^[Yy]$ ]]; then
   fi
 fi
 
-# --- 5. (선택) TTS 음성 모델 ----------------------------------------------
-read -r -p "▶ [5/7] TTS(음성 출력) 모델을 지금 받을까요? [y/N] " ANS || ANS=N
-if [[ "${ANS:-N}" =~ ^[Yy]$ ]]; then
-  # 실패해도 설치를 중단하지 않는다(|| true). 받은 음성만 TTS에 사용됨.
-  bash download_voices.sh "$ROOT/ml-service/voices" || true
-  # 음성 파일 절대경로로 voices.json 생성. 실제 없는 파일은 app.py가 자동으로 건너뜀.
-  cat > "$ROOT/ml-service/voices.json" <<EOF
-{
-  "ko": "$ROOT/ml-service/voices/ko_KR-kss.onnx",
-  "en": "$ROOT/ml-service/voices/en_US-amy-medium.onnx",
-  "ja": "$ROOT/ml-service/voices/ja_JP-hfc_female-medium.onnx"
-}
-EOF
-  echo "  → voices.json 생성됨 ($ROOT/ml-service/voices)"
-fi
+# --- 5. TTS ----------------------------------------------------------------
+# MeloTTS는 별도 음성 파일이 필요 없고, 사용하는 언어 모델을 최초 합성 시
+# 자동 다운로드한다(3단계에서 이미 설치). 추가 작업 없음.
+echo "▶ [5/7] TTS는 MeloTTS 사용 — 최초 사용 시 모델 자동 다운로드(추가 작업 없음)."
 deactivate
 
 # --- 6. .env 생성 ----------------------------------------------------------
@@ -128,7 +120,6 @@ WHISPER_MODEL=${WHISPER_DEFAULT}
 NLLB_EN2KO_DIR=${ROOT}/ml-service/models/nllb-finetuned-en2ko-ct2
 NLLB_KO2EN_DIR=${ROOT}/ml-service/models/nllb-finetuned-ko2en-ct2
 NLLB_MODEL_DIR=${GENERAL_DIR}
-PIPER_BIN=${ROOT}/ml-service/.venv/bin/piper
 EOF
 echo "  → ml-service/ml.env 생성됨 (ML 서비스 환경변수)"
 

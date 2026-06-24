@@ -48,8 +48,15 @@ NLLB_MODEL_DIR = os.environ.get("NLLB_MODEL_DIR", os.path.join(HERE, "models", "
 NLLB_TOKENIZER = os.environ.get("NLLB_TOKENIZER", "facebook/nllb-200-distilled-600M")
 NLLB_BEAM = int(os.environ.get("NLLB_BEAM", "4"))
 
-PIPER_BIN = os.environ.get("PIPER_BIN", "piper")
-VOICES_FILE = os.environ.get("PIPER_VOICES_FILE", os.path.join(HERE, "voices.json"))
+# TTS: MeloTTS (무료·로컬, 한국어 포함 다국어). ISO-639-1 -> MeloTTS 언어코드.
+MELO_LANG = {
+    "ko": "KR",
+    "en": "EN",
+    "ja": "JP",
+    "zh": "ZH",
+    "es": "ES",
+    "fr": "FR",
+}
 
 # Whisper(ISO-639-1) -> NLLB(FLORES-200) 언어코드 매핑.
 NLLB_CODES = {
@@ -86,20 +93,32 @@ _tokenizer = AutoTokenizer.from_pretrained(NLLB_TOKENIZER)
 print("[ml] 번역 모델 준비 완료.")
 
 
-def _load_voices():
-    if os.environ.get("PIPER_VOICES"):
+# MeloTTS 모델은 언어별로 무거우므로 최초 사용 시 지연 로딩 후 캐시한다.
+_melo_models = {}
+_melo_speakers = {}
+
+
+def _get_melo(lang_iso):
+    code = MELO_LANG.get(lang_iso)
+    if not code:
+        return None, None
+    if code not in _melo_models:
         try:
-            return json.loads(os.environ["PIPER_VOICES"])
-        except json.JSONDecodeError:
-            pass
-    if os.path.exists(VOICES_FILE):
-        with open(VOICES_FILE, "r", encoding="utf-8") as f:
-            return {k: v for k, v in json.load(f).items() if not k.startswith("_")}
-    return {}
+            from melo.api import TTS as MeloTTS
+
+            print(f"[ml] MeloTTS 로딩: {code} ({DEVICE}) ...")
+            model = MeloTTS(language=code, device=DEVICE)
+            _melo_models[code] = model
+            _melo_speakers[code] = list(model.hps.data.spk2id.values())[0]
+            print(f"[ml] MeloTTS {code} 준비 완료.")
+        except Exception as e:
+            print(f"[ml] MeloTTS({code}) 로딩 실패 — 텍스트만 출력: {e}")
+            _melo_models[code] = None
+            _melo_speakers[code] = None
+    return _melo_models[code], _melo_speakers[code]
 
 
-VOICES = _load_voices()
-print(f"[ml] TTS voices: {list(VOICES.keys()) or '(없음 — 텍스트만 출력)'}")
+print(f"[ml] TTS(MeloTTS) 지원 언어: {list(MELO_LANG.keys())} (최초 사용 시 모델 다운로드)")
 
 
 # ---------------------------------------------------------------------------
@@ -144,26 +163,19 @@ def _translate(text, src_iso, tgt_iso):
 # TTS (piper) — 없는 언어는 None 반환 → 텍스트만 출력
 # ---------------------------------------------------------------------------
 def _synthesize(text, lang_code):
-    voice = VOICES.get(lang_code)
-    if not voice or not text.strip():
+    if not text.strip():
         return None
-    if not os.path.exists(voice):
-        print(f"[ml] voice 파일 없음: {voice}")
-        return None
+    model, speaker_id = _get_melo(lang_code)
+    if model is None:
+        return None  # 미지원 언어 또는 로딩 실패 → 텍스트만 출력
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         out_path = tmp.name
     try:
-        subprocess.run(
-            [PIPER_BIN, "--model", voice, "--output_file", out_path],
-            input=text.encode("utf-8"),
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
+        model.tts_to_file(text, speaker_id, out_path, speed=1.0)
         with open(out_path, "rb") as f:
             return f.read()
-    except subprocess.CalledProcessError as e:
-        print(f"[ml] piper 합성 실패: {e.stderr.decode('utf-8', 'ignore')[:200]}")
+    except Exception as e:
+        print(f"[ml] MeloTTS 합성 실패: {e}")
         return None
     finally:
         if os.path.exists(out_path):
@@ -189,7 +201,7 @@ def health():
             "ko2en": _ko2en is not None,
             "general": _general is not None,
         },
-        "voices": list(VOICES.keys()),
+        "tts": list(MELO_LANG.keys()),
     }
 
 
