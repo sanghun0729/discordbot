@@ -102,7 +102,15 @@ fi
 read -r -p "▶ [5/7] TTS(음성 출력) 모델을 지금 받을까요? [y/N] " ANS || ANS=N
 if [[ "${ANS:-N}" =~ ^[Yy]$ ]]; then
   bash download_voices.sh "$ROOT/ml-service/voices"
-  echo "  → voices.json 의 경로를 $ROOT/ml-service/voices 기준으로 수정하세요."
+  # 다운로드한 음성 파일의 절대경로로 voices.json 자동 생성.
+  cat > "$ROOT/ml-service/voices.json" <<EOF
+{
+  "ko": "$ROOT/ml-service/voices/ko_KR-glow-medium.onnx",
+  "en": "$ROOT/ml-service/voices/en_US-amy-medium.onnx",
+  "ja": "$ROOT/ml-service/voices/ja_JP-hfc_female-medium.onnx"
+}
+EOF
+  echo "  → voices.json 생성됨 ($ROOT/ml-service/voices)"
 fi
 deactivate
 
@@ -119,6 +127,7 @@ WHISPER_MODEL=${WHISPER_DEFAULT}
 NLLB_EN2KO_DIR=${ROOT}/ml-service/models/nllb-finetuned-en2ko-ct2
 NLLB_KO2EN_DIR=${ROOT}/ml-service/models/nllb-finetuned-ko2en-ct2
 NLLB_MODEL_DIR=${GENERAL_DIR}
+PIPER_BIN=${ROOT}/ml-service/.venv/bin/piper
 EOF
 echo "  → ml-service/ml.env 생성됨 (ML 서비스 환경변수)"
 
