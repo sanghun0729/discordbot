@@ -2,5 +2,8 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 python-multipart>=0.0.9
 faster-whisper>=1.0.0
-argostranslate>=1.9.6
+# 번역: CTranslate2 엔진 + NLLB-200 모델 (RealTrans와 동일 조합)
+ctranslate2>=4.0
+transformers>=4.38
+sentencepiece>=0.2.0
 piper-tts>=1.2.0

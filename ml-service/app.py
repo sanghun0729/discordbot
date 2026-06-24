@@ -1,8 +1,11 @@
 """
-로컬 ML 사이드카 — STT(faster-whisper) + 번역(argostranslate) + TTS(piper).
+로컬 ML 사이드카 — STT(faster-whisper) + 번역(CTranslate2 + NLLB) + TTS(piper).
 
 전부 로컬에서 무료로 동작한다. Node 봇이 WAV 오디오를 POST /process 로 보내면
 { source_text, source_lang, translated_text, target_lang, audio_b64 } 를 돌려준다.
+
+번역 엔진은 CTranslate2("ctrans"), 모델은 Meta NLLB-200 (distilled).
+→ 모델은 먼저 setup_translation.sh 로 CTranslate2 포맷으로 변환해 두어야 한다.
 
 실행:
     uvicorn app:app --host 0.0.0.0 --port 8000
@@ -14,30 +17,59 @@ import json
 import os
 import subprocess
 import tempfile
-import wave
 
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 
 from faster_whisper import WhisperModel
-import argostranslate.package
-import argostranslate.translate
+import ctranslate2
+from transformers import AutoTokenizer
 
 app = FastAPI(title="Discord 번역 봇 ML 서비스")
+HERE = os.path.dirname(__file__)
 
 # ---------------------------------------------------------------------------
-# 설정 (환경변수로 조정 가능)
+# 설정 (환경변수로 조정)
 # ---------------------------------------------------------------------------
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")  # tiny/base/small/medium...
-WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")  # cpu 또는 cuda
-WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8")  # cpu면 int8 권장
+# GPU 서버 기본값(cuda/float16). CPU만 있으면 DEVICE=cpu, COMPUTE=int8 로 덮어쓸 것.
+DEVICE = os.environ.get("ML_DEVICE", "cuda")
+COMPUTE = os.environ.get("ML_COMPUTE", "float16")
+
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3")
+
+NLLB_MODEL_DIR = os.environ.get(
+    "NLLB_MODEL_DIR", os.path.join(HERE, "models", "nllb-200-distilled-1.3B-ct2")
+)
+# 토크나이저: 변환 시 모델 디렉터리에 함께 복사되므로 기본값은 모델 디렉터리.
+NLLB_TOKENIZER = os.environ.get("NLLB_TOKENIZER", NLLB_MODEL_DIR)
+NLLB_BEAM = int(os.environ.get("NLLB_BEAM", "4"))
+
 PIPER_BIN = os.environ.get("PIPER_BIN", "piper")
-# 언어코드 -> piper voice(.onnx) 경로 매핑. voices.json 또는 PIPER_VOICES(env, JSON)로 지정.
-VOICES_FILE = os.environ.get("PIPER_VOICES_FILE", os.path.join(os.path.dirname(__file__), "voices.json"))
+VOICES_FILE = os.environ.get("PIPER_VOICES_FILE", os.path.join(HERE, "voices.json"))
 
-print(f"[ml] Whisper 모델 로딩: {WHISPER_MODEL} ({WHISPER_DEVICE}/{WHISPER_COMPUTE}) ...")
-_whisper = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE)
+# Whisper(ISO-639-1) -> NLLB(FLORES-200) 언어코드 매핑.
+NLLB_CODES = {
+    "ko": "kor_Hang",
+    "en": "eng_Latn",
+    "ja": "jpn_Jpan",
+    "zh": "zho_Hans",
+    "es": "spa_Latn",
+    "fr": "fra_Latn",
+    "de": "deu_Latn",
+    "vi": "vie_Latn",
+}
+
+# ---------------------------------------------------------------------------
+# 모델 로딩
+# ---------------------------------------------------------------------------
+print(f"[ml] Whisper 로딩: {WHISPER_MODEL} ({DEVICE}/{COMPUTE}) ...")
+_whisper = WhisperModel(WHISPER_MODEL, device=DEVICE, compute_type=COMPUTE)
 print("[ml] Whisper 준비 완료.")
+
+print(f"[ml] NLLB(CTranslate2) 로딩: {NLLB_MODEL_DIR} ({DEVICE}/{COMPUTE}) ...")
+_translator = ctranslate2.Translator(NLLB_MODEL_DIR, device=DEVICE, compute_type=COMPUTE)
+_tokenizer = AutoTokenizer.from_pretrained(NLLB_TOKENIZER)
+print("[ml] 번역 모델 준비 완료.")
 
 
 def _load_voices():
@@ -48,7 +80,7 @@ def _load_voices():
             pass
     if os.path.exists(VOICES_FILE):
         with open(VOICES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            return {k: v for k, v in json.load(f).items() if not k.startswith("_")}
     return {}
 
 
@@ -57,62 +89,33 @@ print(f"[ml] TTS voices: {list(VOICES.keys()) or '(없음 — 텍스트만 출�
 
 
 # ---------------------------------------------------------------------------
-# 번역: 필요한 argostranslate 언어팩을 지연 설치
+# 번역 (CTranslate2 + NLLB)
 # ---------------------------------------------------------------------------
-_installed_pairs = None
-
-
-def _refresh_installed():
-    global _installed_pairs
-    _installed_pairs = {
-        (p.from_code, p.to_code) for p in argostranslate.package.get_installed_packages()
-    }
-
-
-def _ensure_pair(from_code, to_code):
-    """from->to 직접 팩이 없으면 from->en, en->to 를 설치해 영어 경유 번역을 가능케 한다."""
-    if _installed_pairs is None:
-        _refresh_installed()
-    needed = []
-    if (from_code, to_code) in _installed_pairs:
-        return
-    # 직접 팩 우선, 없으면 영어 피벗.
-    candidates = [(from_code, to_code)]
-    if from_code != "en" and to_code != "en":
-        candidates = [(from_code, "en"), ("en", to_code)]
-
-    available = argostranslate.package.get_available_packages()
-    for fc, tc in candidates:
-        if (fc, tc) in _installed_pairs:
-            continue
-        match = next((p for p in available if p.from_code == fc and p.to_code == tc), None)
-        if match:
-            needed.append(match)
-
-    if needed:
-        for pkg in needed:
-            print(f"[ml] argos 언어팩 설치: {pkg.from_code}->{pkg.to_code}")
-            argostranslate.package.install_from_path(pkg.download())
-        _refresh_installed()
-
-
-def _translate(text, from_code, to_code):
-    if not text.strip() or from_code == to_code:
+def _translate(text, src_iso, tgt_iso):
+    if not text.strip():
         return text
-    try:
-        argostranslate.package.update_package_index()
-    except Exception as e:  # 인덱스 갱신 실패해도 이미 설치된 팩으로 시도
-        print(f"[ml] 패키지 인덱스 갱신 실패(무시): {e}")
-    try:
-        _ensure_pair(from_code, to_code)
-        return argostranslate.translate.translate(text, from_code, to_code)
-    except Exception as e:
-        print(f"[ml] 번역 실패({from_code}->{to_code}), 원문 반환: {e}")
+    tgt = NLLB_CODES.get(tgt_iso)
+    if not tgt:
+        return text  # 목표 언어 미지원 → 원문 반환
+    src = NLLB_CODES.get(src_iso, "eng_Latn")  # 감지 실패 시 영어로 가정
+    if src == tgt:
         return text
+
+    _tokenizer.src_lang = src
+    source = _tokenizer.convert_ids_to_tokens(_tokenizer.encode(text))
+    results = _translator.translate_batch(
+        [source], target_prefix=[[tgt]], beam_size=NLLB_BEAM
+    )
+    tokens = results[0].hypotheses[0]
+    if tokens and tokens[0] == tgt:
+        tokens = tokens[1:]  # 선두의 언어 토큰 제거
+    return _tokenizer.decode(
+        _tokenizer.convert_tokens_to_ids(tokens), skip_special_tokens=True
+    )
 
 
 # ---------------------------------------------------------------------------
-# TTS: piper CLI 로 합성 (없는 언어는 None 반환 → 텍스트만 출력)
+# TTS (piper) — 없는 언어는 None 반환 → 텍스트만 출력
 # ---------------------------------------------------------------------------
 def _synthesize(text, lang_code):
     voice = VOICES.get(lang_code)
@@ -152,7 +155,7 @@ def _transcribe(wav_bytes):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "voices": list(VOICES.keys())}
+    return {"status": "ok", "device": DEVICE, "voices": list(VOICES.keys())}
 
 
 @app.post("/process")

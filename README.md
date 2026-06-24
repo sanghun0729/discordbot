@@ -8,9 +8,9 @@ STT/번역/TTS를 **전부 로컬에서 무료**로 처리합니다 (유료 API 
   → Discord 음성 채널
     → Node 봇이 수신 (@discordjs/voice) → Opus 디코딩 → WAV
       → [로컬 Python ML 사이드카]
-          STT  : faster-whisper   (음성→텍스트, 언어 자동 감지)
-          번역 : argostranslate   (오프라인)
-          TTS  : piper            (텍스트→음성)
+          STT  : faster-whisper          (음성→텍스트, 언어 자동 감지)
+          번역 : CTranslate2 + NLLB-200  (오프라인, 고품질)
+          TTS  : piper                   (텍스트→음성)
       → 텍스트 채널에 번역문 전송  +  음성 채널에 TTS 재생
 ```
 
@@ -19,7 +19,7 @@ STT/번역/TTS를 **전부 로컬에서 무료**로 처리합니다 (유료 API 
 | 구성 | 역할 | 기술 |
 |---|---|---|
 | **Node 봇** (`src/`) | Discord 입출력 — 음성 수신, 텍스트 전송, TTS 재생 | discord.js, @discordjs/voice |
-| **ML 사이드카** (`ml-service/`) | STT + 번역 + TTS (로컬·무료) | FastAPI, faster-whisper, argostranslate, piper |
+| **ML 사이드카** (`ml-service/`) | STT + 번역 + TTS (로컬·무료) | FastAPI, faster-whisper, CTranslate2+NLLB, piper |
 
 두 프로세스는 같은 서버에서 HTTP(`http://127.0.0.1:8000`)로 통신합니다.
 
@@ -54,6 +54,11 @@ cd ml-service
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
+# 번역 모델(NLLB-200)을 CTranslate2 포맷으로 변환 (1회). GPU 기본 float16.
+bash setup_translation.sh
+#   CPU만 있으면: bash setup_translation.sh facebook/nllb-200-distilled-600M models/nllb-600M-ct2 int8
+#   그리고 .env/환경변수로 NLLB_MODEL_DIR, ML_DEVICE=cpu, ML_COMPUTE=int8 지정
+
 # (선택) TTS 음성 모델 다운로드 — 음성 출력을 원할 때만
 bash download_voices.sh            # 기본 /opt/piper/voices 에 저장
 #   다운로드 후 voices.json 의 경로가 맞는지 확인 (없는 언어는 텍스트만 출력)
@@ -61,8 +66,9 @@ bash download_voices.sh            # 기본 /opt/piper/voices 에 저장
 # 서비스 실행 (최초 실행 시 Whisper 모델 자동 다운로드)
 uvicorn app:app --host 127.0.0.1 --port 8000
 ```
-> CPU만 있으면 `WHISPER_MODEL=base` 또는 `small` 권장. GPU가 있으면
-> `WHISPER_DEVICE=cuda WHISPER_COMPUTE=float16` 로 더 빠르게.
+> **GPU(기본)**: `ML_DEVICE=cuda ML_COMPUTE=float16`, Whisper `large-v3`, NLLB `1.3B`.
+> **CPU**: `ML_DEVICE=cpu ML_COMPUTE=int8`, Whisper `small`, NLLB `600M` 권장.
+> NVIDIA 드라이버 + CUDA 런타임이 필요합니다(ctranslate2/faster-whisper GPU).
 
 ### 2) Node 봇
 ```bash
@@ -114,8 +120,8 @@ npm i -g pm2 && pm2 start src/index.js --name transl-bot && pm2 save
 ## 설계 / 한계
 - **발화 단위 처리**: 0.8초 무음 기준으로 문장 종료를 판단 → 완전 실시간이 아니라 2~5초 지연.
 - **다중 화자**: 화자별 독립 스트림으로 동시 번역. 단, **TTS 음성 재생은 길드당 1개 오디오만 가능**하므로 큐로 직렬화되어 순서대로 재생됩니다.
-- **언어 자동 감지**: Whisper가 입력 언어를 감지하고, argostranslate가 (필요 시 영어 경유로) 목표 언어로 번역.
-- **번역 품질**: argostranslate는 오프라인·무료이지만 상용 API보다 품질이 낮을 수 있습니다. 더 높은 품질이 필요하면 `ml-service/app.py` 의 `_translate` 를 로컬 LLM(Ollama 등)이나 DeepL로 교체하면 됩니다.
+- **언어 자동 감지**: Whisper가 입력 언어를 감지하고, NLLB-200이 목표 언어로 직접 번역.
+- **번역 품질/엔진**: 번역은 **CTranslate2(엔진) + NLLB-200(모델)** 조합으로, 오프라인·무료이면서 품질이 우수합니다(약 200개 언어). 한↔영을 더 끌어올리려면 `NHNDQ/nllb-finetuned-en2ko` / `ko2en` 파인튜닝 모델을 변환해 사용할 수도 있습니다. 모델/디바이스는 `NLLB_MODEL_DIR`, `ML_DEVICE`, `ML_COMPUTE` 로 조정합니다.
 - **TTS 언어**: piper 음성 모델이 있는 언어만 음성 출력. 모델이 없으면 자동으로 텍스트만 출력합니다.
 
 ## 비용
