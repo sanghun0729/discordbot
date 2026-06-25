@@ -75,8 +75,9 @@ fi
 # --- 4. 번역 모델 변환 -----------------------------------------------------
 echo "▶ [4/7] 번역 모델 → CTranslate2 변환 (다운로드, 시간 소요)..."
 if [ "$GPU" -eq 1 ]; then
-  QUANT=float16
-  ML_DEVICE_DEFAULT=cuda; ML_COMPUTE_DEFAULT=float16; WHISPER_DEFAULT=large-v3
+  # int8_float16: 신형 GPU는 물론 구형(Pascal=1080 Ti)에서도 빠르고 정확.
+  QUANT=int8_float16
+  ML_DEVICE_DEFAULT=cuda; ML_COMPUTE_DEFAULT=int8_float16; WHISPER_DEFAULT=large-v3
 else
   QUANT=int8
   ML_DEVICE_DEFAULT=cpu; ML_COMPUTE_DEFAULT=int8; WHISPER_DEFAULT=small
