@@ -94,9 +94,9 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   try {
-    if (interaction.commandName === 'join') return handleJoin(interaction);
-    if (interaction.commandName === 'leave') return handleLeave(interaction);
-    if (interaction.commandName === 'setlang') return handleSetLang(interaction);
+    if (interaction.commandName === 'just-join') return handleJoin(interaction);
+    if (interaction.commandName === 'just-leave') return handleLeave(interaction);
+    if (interaction.commandName === 'just-setlang') return handleSetLang(interaction);
   } catch (err) {
     console.error('[interaction] error:', err);
     const payload = { content: `오류: ${err.message}`, flags: MessageFlags.Ephemeral };
@@ -199,7 +199,7 @@ async function handleSetLang(interaction) {
   const session = sessions.get(interaction.guildId);
   if (!session) {
     return interaction.reply({
-      content: '활성화된 번역 세션이 없습니다. 먼저 `/join` 으로 시작하세요.',
+      content: '활성화된 번역 세션이 없습니다. 먼저 `/just-join` 으로 시작하세요.',
       flags: MessageFlags.Ephemeral,
     });
   }

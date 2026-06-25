@@ -7,7 +7,7 @@ const { languageChoices } = require('./languages');
 
 const commands = [
   new SlashCommandBuilder()
-    .setName('join')
+    .setName('just-join')
     .setDescription('음성 채널에 입장해 발화를 번역합니다.')
     .addStringOption((opt) =>
       opt
@@ -30,7 +30,7 @@ const commands = [
     )
     .toJSON(),
   new SlashCommandBuilder()
-    .setName('setlang')
+    .setName('just-setlang')
     .setDescription('번역 목표 언어를 변경합니다.')
     .addStringOption((opt) =>
       opt
@@ -41,7 +41,7 @@ const commands = [
     )
     .toJSON(),
   new SlashCommandBuilder()
-    .setName('leave')
+    .setName('just-leave')
     .setDescription('음성 채널에서 나가고 번역을 종료합니다.')
     .toJSON(),
 ];
