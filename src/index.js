@@ -57,6 +57,40 @@ process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err);
 });
 
+// 음성 채널에 사람(봇 제외)이 모두 나가면 봇도 자동 퇴장한다.
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+  const guild = newState.guild || oldState.guild;
+  if (!guild) return;
+  const connection = getVoiceConnection(guild.id);
+  if (!connection) return;
+
+  const botChannelId = connection.joinConfig.channelId;
+  const channel = guild.channels.cache.get(botChannelId);
+  if (!channel) return;
+
+  const humans = channel.members.filter((m) => !m.user.bot).size;
+  if (humans > 0) return;
+
+  const session = sessions.get(guild.id);
+  detachPlayer(guild.id);
+  try {
+    connection.destroy();
+  } catch (_) {
+    /* noop */
+  }
+  sessions.delete(guild.id);
+  console.log(`[voice] 사용자 없음 → 자동 퇴장 (${guild.id})`);
+
+  if (session) {
+    try {
+      const ch = await client.channels.fetch(session.textChannelId);
+      await ch.send('👋 음성 채널에 아무도 없어 자동으로 나갔습니다.');
+    } catch (_) {
+      /* noop */
+    }
+  }
+});
+
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   try {
