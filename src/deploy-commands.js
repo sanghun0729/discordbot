@@ -52,12 +52,22 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
     const clientId = process.env.CLIENT_ID;
     const guildId = process.env.GUILD_ID;
-    if (guildId) {
+
+    // DEPLOY_GUILD=1 이면 지정 길드에만(즉시 반영, 개발용). 기본은 전역 등록.
+    if (process.env.DEPLOY_GUILD === '1' && guildId) {
       await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-      console.log(`✅ 길드(${guildId}) 슬래시 명령 등록 완료.`);
-    } else {
-      await rest.put(Routes.applicationCommands(clientId), { body: commands });
-      console.log('✅ 전역 슬래시 명령 등록 완료 (반영까지 시간이 걸릴 수 있습니다).');
+      console.log(`✅ 길드(${guildId}) 전용 명령 등록 완료 (그 서버에서만 즉시 사용).`);
+      return;
+    }
+
+    // 전역 등록: 봇이 들어간 모든 서버에서 사용 가능 (반영까지 최대 1시간, 보통 수 분).
+    await rest.put(Routes.applicationCommands(clientId), { body: commands });
+    console.log('✅ 전역 슬래시 명령 등록 완료 (모든 서버, 반영까지 시간이 걸릴 수 있음).');
+
+    // 과거 길드 전용 등록이 남아 중복으로 보이지 않게 정리.
+    if (guildId) {
+      await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
+      console.log(`🧹 길드(${guildId}) 전용 명령 정리 완료(중복 방지).`);
     }
   } catch (err) {
     console.error('명령 등록 실패:', err);
