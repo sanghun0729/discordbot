@@ -65,7 +65,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 # torch: 모델 변환(ct2-transformers-converter) 전용 (CPU 빌드).
 pip install torch --index-url https://download.pytorch.org/whl/cpu
-# TTS: gTTS (무료·키 불필요). requirements.txt 에 포함되어 이미 설치됨.
+# TTS: edge-tts (무료·키 불필요). requirements.txt 에 포함되어 이미 설치됨.
 
 if [ "$GPU" -eq 1 ]; then
   echo "▶ GPU용 CUDA 런타임 라이브러리(cuBLAS/cuDNN) 설치..."
@@ -101,9 +101,8 @@ if [[ "${GEN:-N}" =~ ^[Yy]$ ]]; then
 fi
 
 # --- 5. TTS ----------------------------------------------------------------
-# MeloTTS는 별도 음성 파일이 필요 없고, 사용하는 언어 모델을 최초 합성 시
-# 자동 다운로드한다(3단계에서 이미 설치). 추가 작업 없음.
-echo "▶ [5/7] TTS는 MeloTTS 사용 — 최초 사용 시 모델 자동 다운로드(추가 작업 없음)."
+# edge-tts는 온라인 합성이라 별도 모델 다운로드가 없다(3단계에서 이미 설치).
+echo "▶ [5/7] TTS는 edge-tts 사용 — 별도 모델 불필요(추가 작업 없음)."
 deactivate
 
 # --- 6. .env 생성 ----------------------------------------------------------

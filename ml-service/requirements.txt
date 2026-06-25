@@ -9,5 +9,5 @@ transformers>=4.38
 sentencepiece>=0.2.0
 # torch: 모델 변환(ct2-transformers-converter) 전용. CPU 빌드 권장:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
-# TTS: gTTS (Google Translate TTS, 무료·키 불필요)
-gTTS>=2.5.0
+# TTS: edge-tts (Microsoft Edge TTS, 무료·키 불필요, 목소리/속도 조절)
+edge-tts>=6.1.0

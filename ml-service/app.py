@@ -49,17 +49,18 @@ NLLB_MODEL_DIR = os.environ.get("NLLB_MODEL_DIR", os.path.join(HERE, "models", "
 NLLB_TOKENIZER = os.environ.get("NLLB_TOKENIZER", "facebook/nllb-200-distilled-600M")
 NLLB_BEAM = int(os.environ.get("NLLB_BEAM", "4"))
 
-# TTS: gTTS (Google Translate TTS, 무료·키 불필요). ISO-639-1 -> gTTS 언어코드.
-# 번역문 텍스트만 전송하며 MP3 오디오를 받는다(로컬 아님, 무료).
-GTTS_LANG = {
-    "ko": "ko",
-    "en": "en",
-    "ja": "ja",
-    "zh": "zh-CN",
-    "es": "es",
-    "fr": "fr",
-    "de": "de",
-    "vi": "vi",
+# TTS: edge-tts (Microsoft Edge 온라인 TTS, 무료·키 불필요).
+# 언어별 목소리 선택 + 속도(rate) 조절 지원. 번역문 텍스트만 전송, MP3 수신.
+TTS_RATE = os.environ.get("TTS_RATE", "+20%")  # 1.2배 ≈ +20%
+EDGE_VOICES = {
+    "ko": os.environ.get("TTS_VOICE_KO", "ko-KR-InJoonNeural"),
+    "en": os.environ.get("TTS_VOICE_EN", "en-US-AriaNeural"),
+    "ja": os.environ.get("TTS_VOICE_JA", "ja-JP-NanamiNeural"),
+    "zh": os.environ.get("TTS_VOICE_ZH", "zh-CN-XiaoxiaoNeural"),
+    "es": os.environ.get("TTS_VOICE_ES", "es-ES-AlvaroNeural"),
+    "fr": os.environ.get("TTS_VOICE_FR", "fr-FR-DeniseNeural"),
+    "de": os.environ.get("TTS_VOICE_DE", "de-DE-KillianNeural"),
+    "vi": os.environ.get("TTS_VOICE_VI", "vi-VN-NamMinhNeural"),
 }
 
 # Whisper(ISO-639-1) -> NLLB(FLORES-200) 언어코드 매핑.
@@ -97,7 +98,7 @@ _tokenizer = AutoTokenizer.from_pretrained(NLLB_TOKENIZER)
 print("[ml] 번역 모델 준비 완료.")
 
 
-print(f"[ml] TTS(gTTS) 지원 언어: {list(GTTS_LANG.keys())}")
+print(f"[ml] TTS(edge-tts) 목소리: {EDGE_VOICES} | 속도: {TTS_RATE}")
 
 
 # ---------------------------------------------------------------------------
@@ -139,21 +140,24 @@ def _translate(text, src_iso, tgt_iso):
 
 
 # ---------------------------------------------------------------------------
-# TTS (piper) — 없는 언어는 None 반환 → 텍스트만 출력
+# TTS (edge-tts) — 없는 언어는 None 반환 → 텍스트만 출력
 # ---------------------------------------------------------------------------
-def _synthesize(text, lang_code):
-    """gTTS로 MP3 오디오 생성. 미지원 언어/실패 시 None(텍스트만 출력)."""
-    code = GTTS_LANG.get(lang_code)
-    if not code or not text.strip():
+async def _synthesize(text, lang_code):
+    """edge-tts로 MP3 오디오 생성(목소리/속도 적용). 미지원/실패 시 None."""
+    voice = EDGE_VOICES.get(lang_code)
+    if not voice or not text.strip():
         return None
     try:
-        from gtts import gTTS
+        import edge_tts
 
-        buf = io.BytesIO()
-        gTTS(text=text, lang=code).write_to_fp(buf)  # MP3 (Node가 ffmpeg로 재생)
-        return buf.getvalue()
+        communicate = edge_tts.Communicate(text, voice, rate=TTS_RATE)
+        buf = bytearray()
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                buf += chunk["data"]
+        return bytes(buf) if buf else None
     except Exception as e:
-        print(f"[ml] gTTS 합성 실패: {e}")
+        print(f"[ml] edge-tts 합성 실패: {e}")
         return None
 
 
@@ -246,7 +250,8 @@ def health():
             "ko2en": _ko2en is not None,
             "general": _general is not None,
         },
-        "tts": list(GTTS_LANG.keys()),
+        "tts": EDGE_VOICES,
+        "tts_rate": TTS_RATE,
     }
 
 
@@ -262,7 +267,7 @@ async def process(file: UploadFile = File(...), target: str = Form(...)):
         )
 
     translated = _translate(source_text, source_lang, target)
-    audio = _synthesize(translated, target)
+    audio = await _synthesize(translated, target)
 
     return JSONResponse(
         {
