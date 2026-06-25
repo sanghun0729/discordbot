@@ -18,6 +18,7 @@ import base64
 import io
 import json
 import os
+import re
 import subprocess
 import tempfile
 
@@ -157,6 +158,41 @@ def _synthesize(text, lang_code):
 
 
 # ---------------------------------------------------------------------------
+# 필터: 번역 생략(짧은 말) + 환각(반복 문자) 차단
+# ---------------------------------------------------------------------------
+# 2글자 이하 ASCII 단어(hi, no, ok...)는 자동 생략 + 아래 목록은 길어도 생략.
+SKIP_MAX_ASCII = int(os.environ.get("SKIP_MAX_ASCII", "2"))
+SKIP_PHRASES = {
+    "hi", "hello", "hey", "yes", "yeah", "yep", "no", "nope", "ok", "okay",
+    "bye", "thanks", "thank you", "hmm", "uh", "um", "oh", "wow", "haha",
+    "lol", "huh", "yo",
+    "네", "넵", "예", "응", "음", "어", "아니", "아니요", "안녕",
+}
+
+
+def _should_skip(text):
+    """너무 짧거나 자명한 표현(HI/YES/NO 등)이면 True → 번역 생략."""
+    norm = re.sub(r"[^\w가-힣 ]", "", text).strip().lower()
+    if not norm:
+        return True
+    if norm in SKIP_PHRASES:
+        return True
+    compact = norm.replace(" ", "")
+    # 매우 짧은 영문 단어만 길이로 생략(한글은 정보량이 커서 목록으로만 판단).
+    if compact.isascii() and len(compact) <= SKIP_MAX_ASCII:
+        return True
+    return False
+
+
+def _is_hallucination(text):
+    """무음에서 흔한 반복 환각(예: 'HHHH...', 'h-h-h-h')을 감지."""
+    compact = re.sub(r"[\s\-]+", "", text)
+    if len(compact) >= 8 and len(set(compact.lower())) <= 2:
+        return True  # 같은 문자만 길게 반복
+    return False
+
+
+# ---------------------------------------------------------------------------
 # STT
 # ---------------------------------------------------------------------------
 def _run_whisper(wav_bytes, use_vad):
@@ -168,6 +204,7 @@ def _run_whisper(wav_bytes, use_vad):
         vad_parameters=dict(min_silence_duration_ms=500) if use_vad else None,
         condition_on_previous_text=False,  # 직전 텍스트 반복(루프) 방지
         no_speech_threshold=0.6,
+        compression_ratio_threshold=2.4,  # 반복 텍스트(환각) 억제
     )
 
 
@@ -182,17 +219,19 @@ def _transcribe(wav_bytes):
         segments = list(segments)
     parts = []
     for seg in segments:
-        # 비음성/저신뢰 구간은 버린다(무음에서 지어낸 문장 차단).
+        # 비음성/저신뢰/반복(환각) 구간은 버린다.
         if getattr(seg, "no_speech_prob", 0.0) > 0.6:
             continue
         if getattr(seg, "avg_logprob", 0.0) < -1.0:
             continue
+        if getattr(seg, "compression_ratio", 0.0) > 2.4:
+            continue
         parts.append(seg.text)
     text = "".join(parts).strip()
 
-    # 언어 감지 신뢰도가 낮으면(노이즈) 버린다.
+    # 언어 감지 신뢰도가 낮거나(노이즈) 반복 환각이면 버린다.
     prob = getattr(info, "language_probability", 1.0) or 1.0
-    if prob < 0.5:
+    if prob < 0.5 or _is_hallucination(text):
         return "", info.language
     return text, info.language
 
@@ -216,9 +255,10 @@ async def process(file: UploadFile = File(...), target: str = Form(...)):
     wav_bytes = await file.read()
 
     source_text, source_lang = _transcribe(wav_bytes)
-    if not source_text:
+    # 빈 텍스트 / 너무 짧거나 자명한 표현(HI/YES/NO 등)은 번역 생략.
+    if not source_text or _should_skip(source_text):
         return JSONResponse(
-            {"source_text": "", "source_lang": source_lang, "translated_text": "", "target_lang": target, "audio_b64": None}
+            {"source_text": source_text, "source_lang": source_lang, "translated_text": "", "target_lang": target, "audio_b64": None}
         )
 
     translated = _translate(source_text, source_lang, target)
