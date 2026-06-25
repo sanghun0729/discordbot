@@ -45,9 +45,25 @@ const client = new Client({
 // guildId -> { targetCode, targetName, textChannelId, allowedUserId, speak }
 const sessions = new Map();
 
-client.once(Events.ClientReady, (c) => {
+// BOT_NICKNAME 이 설정돼 있으면 해당 길드에서 봇 닉네임을 그 값으로 맞춘다.
+async function applyNickname(guild) {
+  const nick = process.env.BOT_NICKNAME;
+  if (!nick) return;
+  try {
+    const me = guild.members.me || (await guild.members.fetchMe());
+    if (me.nickname !== nick) await me.setNickname(nick);
+  } catch (err) {
+    console.error(`[nick] 닉네임 설정 실패 (${guild.id}):`, err.message);
+  }
+}
+
+client.once(Events.ClientReady, async (c) => {
   console.log(`✅ 로그인됨: ${c.user.tag}`);
+  for (const guild of c.guilds.cache.values()) await applyNickname(guild);
 });
+
+// 새 서버에 초대됐을 때도 닉네임 적용.
+client.on(Events.GuildCreate, (guild) => applyNickname(guild));
 
 // 처리되지 않은 예외/거부가 봇 전체를 종료시키지 않도록 안전망.
 process.on('unhandledRejection', (reason) => {
