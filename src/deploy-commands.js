@@ -25,7 +25,7 @@ const commands = [
     .addBooleanOption((opt) =>
       opt
         .setName('speak')
-        .setDescription('번역문을 음성(TTS)으로도 재생 (기본: 켜짐)')
+        .setDescription('번역문을 음성(TTS)으로도 재생 (기본: 꺼짐)')
         .setRequired(false)
     )
     .toJSON(),

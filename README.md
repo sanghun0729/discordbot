@@ -27,7 +27,7 @@ STT/번역/TTS를 **전부 로컬에서 무료**로 처리합니다 (유료 API 
 
 - `/just-join language:<언어> [user:<사용자>] [speak:<true/false>]` — 음성 채널 입장, 번역 시작
   - `user`: 그 사용자의 발화만 번역 (요청하신 "특정 사용자")
-  - `speak`: 번역문 음성(TTS) 재생 여부 (기본 켜짐)
+  - `speak`: 번역문 음성(TTS) 재생 여부 (기본 꺼짐)
 - `/just-setlang language:<언어>` — 번역 목표 언어 변경 (명령어로 언어 설정)
 - `/just-leave` — 종료
 

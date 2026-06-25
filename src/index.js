@@ -124,7 +124,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 async function handleJoin(interaction) {
   const targetCode = interaction.options.getString('language', true);
   const targetUser = interaction.options.getUser('user');
-  const speak = interaction.options.getBoolean('speak') ?? true;
+  const speak = interaction.options.getBoolean('speak') ?? false;
 
   const voiceChannel = interaction.member?.voice?.channel;
   if (!voiceChannel || voiceChannel.type !== ChannelType.GuildVoice) {
