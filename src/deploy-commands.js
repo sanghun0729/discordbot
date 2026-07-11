@@ -3,7 +3,7 @@
 require('dotenv').config();
 
 const { REST, Routes, SlashCommandBuilder } = require('discord.js');
-const { languageChoices } = require('./languages');
+const { languageChoices, sourceChoices } = require('./languages');
 
 const commands = [
   new SlashCommandBuilder()
@@ -28,6 +28,13 @@ const commands = [
         .setDescription('번역문을 음성(TTS)으로도 재생 (기본: 꺼짐)')
         .setRequired(false)
     )
+    .addStringOption((opt) =>
+      opt
+        .setName('source')
+        .setDescription('입력(말하는) 언어 고정 — 생략 시 자동 감지')
+        .setRequired(false)
+        .addChoices(...sourceChoices())
+    )
     .toJSON(),
   new SlashCommandBuilder()
     .setName('just-setlang')
@@ -38,6 +45,17 @@ const commands = [
         .setDescription('새 목표 언어')
         .setRequired(true)
         .addChoices(...languageChoices())
+    )
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName('just-setsource')
+    .setDescription('입력(말하는) 언어를 변경합니다.')
+    .addStringOption((opt) =>
+      opt
+        .setName('source')
+        .setDescription('입력 언어 (자동 감지 선택 가능)')
+        .setRequired(true)
+        .addChoices(...sourceChoices())
     )
     .toJSON(),
   new SlashCommandBuilder()

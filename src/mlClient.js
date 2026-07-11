@@ -10,9 +10,10 @@ const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://127.0.0.1:8000';
  * @param {string} targetCode 목표 언어 코드 (예: 'ko', 'en')
  * @returns {Promise<{sourceText: string, sourceLang: string, translated: string, audio: Buffer|null}>}
  */
-async function processAudio(wavBuffer, targetCode) {
+async function processAudio(wavBuffer, targetCode, sourceCode) {
   const form = new FormData();
   form.append('target', targetCode);
+  if (sourceCode) form.append('source', sourceCode); // 입력 언어 고정(생략 시 자동 감지)
   form.append(
     'file',
     new Blob([wavBuffer], { type: 'audio/wav' }),

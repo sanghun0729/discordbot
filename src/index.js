@@ -113,6 +113,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.commandName === 'just-join') return handleJoin(interaction);
     if (interaction.commandName === 'just-leave') return handleLeave(interaction);
     if (interaction.commandName === 'just-setlang') return handleSetLang(interaction);
+    if (interaction.commandName === 'just-setsource') return handleSetSource(interaction);
   } catch (err) {
     console.error('[interaction] error:', err);
     const payload = { content: `오류: ${err.message}`, flags: MessageFlags.Ephemeral };
@@ -125,6 +126,8 @@ async function handleJoin(interaction) {
   const targetCode = interaction.options.getString('language', true);
   const targetUser = interaction.options.getUser('user');
   const speak = interaction.options.getBoolean('speak') ?? false;
+  const sourceOpt = interaction.options.getString('source');
+  const sourceCode = !sourceOpt || sourceOpt === 'auto' ? null : sourceOpt;
 
   const voiceChannel = interaction.member?.voice?.channel;
   if (!voiceChannel || voiceChannel.type !== ChannelType.GuildVoice) {
@@ -193,6 +196,7 @@ async function handleJoin(interaction) {
     textChannelId: interaction.channelId,
     allowedUserId: targetUser ? targetUser.id : null,
     speak,
+    sourceCode,
   });
 
   if (speak) attachPlayer(guildId, connection);
@@ -204,9 +208,10 @@ async function handleJoin(interaction) {
 
   const who = targetUser ? `**${targetUser.username}** 님의 발화만` : '모든 발화를';
   const mode = speak ? '텍스트 + 음성(TTS)' : '텍스트';
+  const src = sourceCode ? `입력 언어 **${LANGUAGES[sourceCode]}** 고정, ` : '';
   await interaction.editReply(
     `🎧 **${voiceChannel.name}** 입장 완료.\n` +
-      `${who} **${LANGUAGES[targetCode] || targetCode}** (으)로 번역해 ${mode}(으)로 출력합니다.`
+      `${src}${who} **${LANGUAGES[targetCode] || targetCode}** (으)로 번역해 ${mode}(으)로 출력합니다.`
   );
 }
 
@@ -222,6 +227,20 @@ async function handleSetLang(interaction) {
   session.targetCode = targetCode;
   session.targetName = LANGUAGES[targetCode] || targetCode;
   await interaction.reply(`🌐 번역 목표 언어를 **${session.targetName}** (으)로 변경했습니다.`);
+}
+
+async function handleSetSource(interaction) {
+  const opt = interaction.options.getString('source', true);
+  const session = sessions.get(interaction.guildId);
+  if (!session) {
+    return interaction.reply({
+      content: '활성화된 번역 세션이 없습니다. 먼저 `/just-join` 으로 시작하세요.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  session.sourceCode = opt === 'auto' ? null : opt;
+  const label = session.sourceCode ? `**${LANGUAGES[session.sourceCode]}** 고정` : '**자동 감지**';
+  await interaction.reply(`🎙️ 입력(말하는) 언어를 ${label} (으)로 설정했습니다.`);
 }
 
 async function handleLeave(interaction) {

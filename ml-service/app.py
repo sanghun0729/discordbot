@@ -199,11 +199,12 @@ def _is_hallucination(text):
 # ---------------------------------------------------------------------------
 # STT
 # ---------------------------------------------------------------------------
-def _run_whisper(wav_bytes, use_vad):
+def _run_whisper(wav_bytes, use_vad, language=None):
     return _whisper.transcribe(
         io.BytesIO(wav_bytes),
         beam_size=5,
         temperature=0.0,
+        language=language,  # None이면 자동 감지, 지정 시 그 언어로 고정
         vad_filter=use_vad,
         vad_parameters=dict(min_silence_duration_ms=500) if use_vad else None,
         condition_on_previous_text=False,  # 직전 텍스트 반복(루프) 방지
@@ -212,14 +213,16 @@ def _run_whisper(wav_bytes, use_vad):
     )
 
 
-def _transcribe(wav_bytes):
+def _transcribe(wav_bytes, source_lang=None):
+    # 입력 언어 고정 시 자동감지의 오탐(예: 한국어→중국어)을 방지.
+    lang = source_lang if source_lang in NLLB_CODES else None
     # VAD로 무음/잡음 구간 제거 + 환각 억제. VAD(onnxruntime) 미설치 시 폴백.
     try:
-        segments, info = _run_whisper(wav_bytes, use_vad=True)
+        segments, info = _run_whisper(wav_bytes, use_vad=True, language=lang)
         segments = list(segments)
     except Exception as e:
         print(f"[ml] VAD 사용 불가, 미적용으로 재시도: {e}")
-        segments, info = _run_whisper(wav_bytes, use_vad=False)
+        segments, info = _run_whisper(wav_bytes, use_vad=False, language=lang)
         segments = list(segments)
     parts = []
     for seg in segments:
@@ -233,10 +236,13 @@ def _transcribe(wav_bytes):
         parts.append(seg.text)
     text = "".join(parts).strip()
 
-    # 언어 감지 신뢰도가 낮거나(노이즈) 반복 환각이면 버린다.
-    prob = getattr(info, "language_probability", 1.0) or 1.0
-    if prob < 0.5 or _is_hallucination(text):
+    # 반복 환각이면 버린다. (언어 고정 시엔 감지신뢰도 필터를 건너뜀)
+    if _is_hallucination(text):
         return "", info.language
+    if not lang:
+        prob = getattr(info, "language_probability", 1.0) or 1.0
+        if prob < 0.5:
+            return "", info.language
     return text, info.language
 
 
@@ -256,10 +262,14 @@ def health():
 
 
 @app.post("/process")
-async def process(file: UploadFile = File(...), target: str = Form(...)):
+async def process(
+    file: UploadFile = File(...),
+    target: str = Form(...),
+    source: str = Form(""),
+):
     wav_bytes = await file.read()
 
-    source_text, source_lang = _transcribe(wav_bytes)
+    source_text, source_lang = _transcribe(wav_bytes, source or None)
     # 빈 텍스트 / 너무 짧거나 자명한 표현(HI/YES/NO 등)은 번역 생략.
     if not source_text or _should_skip(source_text):
         return JSONResponse(

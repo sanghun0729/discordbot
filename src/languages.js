@@ -18,4 +18,9 @@ function languageChoices() {
   return Object.entries(LANGUAGES).map(([value, name]) => ({ name, value }));
 }
 
-module.exports = { LANGUAGES, languageChoices };
+// 입력 언어 선택지 — 맨 앞에 '자동 감지'(value: 'auto') 추가.
+function sourceChoices() {
+  return [{ name: '자동 감지', value: 'auto' }, ...languageChoices()];
+}
+
+module.exports = { LANGUAGES, languageChoices, sourceChoices };

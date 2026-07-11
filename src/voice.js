@@ -67,7 +67,11 @@ function startListening(connection, { client, guildId, getSession }) {
         if (!current) return;
 
         const wav = pcmToWav(pcm, 48000, 2);
-        const result = await mlClient.processAudio(wav, current.targetCode);
+        const result = await mlClient.processAudio(
+          wav,
+          current.targetCode,
+          current.sourceCode
+        );
         if (!result.translated) return;
 
         // 짧은 시간 내 동일 번역 반복 억제(환각/중복 발화 방지).
