@@ -1,0 +1,14 @@
+node_modules/
+.env
+*.log
+.DS_Store
+
+# Python
+ml-service/.venv/
+__pycache__/
+*.pyc
+
+# TTS voice models (다운로드 받아 사용)
+*.onnx
+*.onnx.json
+ml-service/models/

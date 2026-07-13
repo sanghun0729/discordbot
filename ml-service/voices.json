@@ -1,0 +1,5 @@
+{
+  "ko": "/home/sanghun0729/discordbot/ml-service/voices/ko_KR-kss.onnx",
+  "en": "/home/sanghun0729/discordbot/ml-service/voices/en_US-amy-medium.onnx",
+  "ja": "/home/sanghun0729/discordbot/ml-service/voices/ja_JP-hfc_female-medium.onnx"
+}

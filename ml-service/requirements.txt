@@ -1,0 +1,13 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+faster-whisper>=1.0.0
+onnxruntime>=1.16  # faster-whisper VAD(Silero) 용
+# 번역: CTranslate2 엔진 + NLLB-200 모델 (RealTrans와 동일 조합)
+ctranslate2>=4.0
+transformers>=4.38
+sentencepiece>=0.2.0
+# torch: 모델 변환(ct2-transformers-converter) 전용. CPU 빌드 권장:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# TTS: edge-tts (Microsoft Edge TTS, 무료·키 불필요, 목소리/속도 조절)
+edge-tts>=6.1.0
