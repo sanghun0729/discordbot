@@ -61,10 +61,29 @@ async function synthesizeTts(text, targetCode) {
   const form = new FormData();
   form.append('text', text);
   form.append('target', targetCode);
-  const res = await fetch(`${ML_SERVICE_URL}/tts`, { method: 'POST', body: form });
-  if (!res.ok) throw new Error(`TTS 서비스 오류 ${res.status}`);
-  const json = await res.json();
-  return json.audio_b64 ? Buffer.from(json.audio_b64, 'base64') : null;
+
+  // TTS 합성이 오래 걸리면(느린 edge-tts 응답) 중단하고 스킵 → 대화 흐름 유지.
+  // TTS_TIMEOUT_MS 로 조정(기본 4초).
+  const timeoutMs = Number(process.env.TTS_TIMEOUT_MS) || 4000;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${ML_SERVICE_URL}/tts`, {
+      method: 'POST',
+      body: form,
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`TTS 서비스 오류 ${res.status}`);
+    const json = await res.json();
+    return json.audio_b64 ? Buffer.from(json.audio_b64, 'base64') : null;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(`TTS 타임아웃(${timeoutMs}ms) → 스킵`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 module.exports = { processAudio, transcribeOnly, synthesizeTts, ML_SERVICE_URL };

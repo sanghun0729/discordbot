@@ -40,25 +40,53 @@ function startListening(connection, { client, guildId, getSession }) {
         duration: Number(process.env.SILENCE_MS) || 600,
       },
     });
-    // 수신 스트림 자체의 에러(예: DAVE 복호화 실패로 인한 destroy)를 처리해
-    // 처리되지 않은 'error' 이벤트로 프로세스가 죽지 않게 한다. pipe는 error를
-    // 전파하지 않으므로 opusStream에 직접 리스너를 단다.
-    opusStream.on('error', (err) => {
-      console.error(`[voice] receive stream error (${userId}):`, err.message);
-      active.delete(userId);
-    });
     const decoder = new prism.opus.Decoder({
       rate: 48000,
       channels: 2,
       frameSize: 960,
     });
 
+    // 발화 PCM 버퍼. 무음이 안 잡혀 스트림이 종료되지 않아도(핫마이크·배경음 등)
+    // 메모리가 폭주하지 않도록 상한을 둔다. 기본 30초 ≈ 5.8MB, MAX_UTTERANCE_SEC로 조정.
+    // 상한 초과분은 버린다(누수·OOM 방지). 192000 = 48000Hz×2ch×2byte(초당 바이트).
+    const MAX_PCM_BYTES = (Number(process.env.MAX_UTTERANCE_SEC) || 30) * 192000;
     const chunks = [];
+    let totalBytes = 0;
+
+    // 캡처 자원 해제(스트림 destroy + 버퍼 즉시 비움) — 에러 시 누수 방지 공통 처리.
+    const destroyCapture = () => {
+      try {
+        opusStream.destroy();
+      } catch (_) {
+        /* noop */
+      }
+      try {
+        decoder.destroy();
+      } catch (_) {
+        /* noop */
+      }
+      chunks.length = 0;
+      totalBytes = 0;
+      active.delete(userId);
+    };
+
+    // 수신 스트림 자체의 에러(예: DAVE 복호화 실패로 인한 destroy)를 처리해
+    // 처리되지 않은 'error' 이벤트로 프로세스가 죽지 않게 하고 자원을 즉시 해제한다.
+    // pipe는 error를 전파하지 않으므로 opusStream에 직접 리스너를 단다.
+    opusStream.on('error', (err) => {
+      console.error(`[voice] receive stream error (${userId}):`, err.message);
+      destroyCapture();
+    });
+
     const pcmStream = opusStream.pipe(decoder);
-    pcmStream.on('data', (c) => chunks.push(c));
+    pcmStream.on('data', (c) => {
+      if (totalBytes >= MAX_PCM_BYTES) return; // 상한 초과 → 버려서 메모리 폭주 방지
+      chunks.push(c);
+      totalBytes += c.length;
+    });
     pcmStream.on('error', (err) => {
       console.error(`[voice] decode error (${userId}):`, err.message);
-      active.delete(userId);
+      destroyCapture();
     });
 
     // 부분 원문 표시: 발화가 INTERIM_MS 넘게 이어지면 그때까지 원문을 미리 한 번 표시.
@@ -105,6 +133,7 @@ function startListening(connection, { client, guildId, getSession }) {
       if (interimTimer) clearTimeout(interimTimer);
       active.delete(userId);
       const pcm = Buffer.concat(chunks);
+      chunks.length = 0; // 합친 뒤 원본 조각 즉시 해제(누수 방지)
       if (pcm.length < MIN_PCM_BYTES) return cleanupInterim();
 
       try {
